@@ -75,7 +75,7 @@ class MultiplicationGame:
 
             else:
                 if len(self.__multipliers) > 0:
-                    sentence = "Ce n'est pas la bonne réponse. On continue. {}".format(self.new_multiplication())
+                    sentence = "Non, {} n'est pas la bonne réponse. On continue. {}".format(answer, self.new_multiplication())
                     hermes.publish_continue_session(intent_message.session_id, sentence, INTENT_FILTER_GET_ANSWER)
                 else:
                     sentence = "Cette table est terminée! Ton score est de {} point".format(self.__score)
