@@ -3,6 +3,7 @@
 
 from hermes_python.hermes import Hermes
 import random
+from message import Message
 
 CONFIGURATION_ENCODING_FORMAT = "utf-8"
 CONFIG_INI = "config.ini"
@@ -22,40 +23,80 @@ INTENT_FILTER_GET_ANSWER = [
     INTENT_DOES_NOT_KNOW
 ]
 
+SKILL_MESSAGES = {
+    'fr': {
+        "noTable": "Il faut d'abord choisir une table de multiplication",
+        "invalidTable": "Désolé, mais on ne joue qu'avec des tables plus grande que zéro",
+        "newTable": "Ok, on fait la table des {} .",
+        "newMultiplication": "Combien font {} fois {} ?",
+        "wrongAnswer": [
+            "Non, {} n'est pas la bonne réponse. On continue",
+            "Et non, {} n'est pas la bonne réponse. Essaye une autre",
+            "{} n'est pas la bonne réponse. On passe à une autre"
+        ],
+        "rightAnswer": [
+            "Bravo. Tu marques un point. On continue",
+            "Super, tu gagnes un point. On continue",
+            "Bien joué, encore un point. On passe à une autre"
+        ],
+        "tableFinished": [
+            "Bravo, tu as finis cette table! Ton score est de {} points",
+            "Super, tu as terminé cette table! Ton score est de {} points",
+            "Félicitation cette table est maintenant terminée! Ton score est de {} point"
+        ],
+        "giveUpButRemaining": [
+            "Ok, la réponse c'était {} . On passe à une autre.",
+            "Ne te décourage pas. la réponse c'était {} . On en fait une autre."
+        ],
+        "giveUpAndNoMore": [
+            "Ok, la réponse était {} . Cette table est terminée! Ton score est de {} point"
+        ],
+        'stopGame': [
+            "Ok, on arrête là. Ton score est de {} point. A bientôt.",
+            "Ok, ton score est de {} point. Merci d'avoir jouer."
+        ],
+    }
+}
+
+
 class MultiplicationGame:
     def __init__(self):
         self.__current_table = 0
         self.__current_multiplier = 0
         self.__score = 0
         self.__multipliers = []
+        self.__message = Message(SKILL_MESSAGES, 'fr')
 
     def new_multiplier(self):
         return random.choice(self.__multipliers)
 
     def new_multiplication(self):
         self.__current_multiplier = self.new_multiplier()
-        return "Combien font {} fois {} ?".format(self.__current_table, self.__current_multiplier)
+        return self.__message.get('newMultiplication').format(self.__current_table, self.__current_multiplier)
 
     def user_request_quiz(self, hermes, intent_message):
-        sentence = ""
 
         if intent_message.slots.table:
             new_table = int(intent_message.slots.table.first().value)
 
             if new_table > 0:
-                if self.__current_table == 0 or new_table != self.__current_table:
-                    self.__current_table = new_table
-                    sentence = "Ok, on fait la table des {} .".format(self.__current_table)
 
-                sentence = "{} {}".format(sentence, self.new_multiplication())
+                self.__score = 0
+                self.__multipliers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+                self.__current_table = new_table
+
+                sentence = "{} {}".format(
+                    self.__message.get('newTable').format(self.__current_table),
+                    self.new_multiplication()
+                )
                 hermes.publish_continue_session(intent_message.session_id, sentence, INTENT_FILTER_GET_ANSWER)
 
             else:
-                hermes.publish_end_session(intent_message.session_id, "Désolé, mais on ne joue qu'avec des tables positives et non nulle")
+                hermes.publish_end_session(intent_message.session_id, self.__message.get('invalidTable'))
 
     def user_gives_answer(self, hermes, intent_message):
         if self.__current_table == 0:
-            hermes.publish_end_session(intent_message.session_id, "")
+            hermes.publish_continue_session(intent_message.session_id, self.__message.get('noTable'), [INTENT_START_MULTIPLICATIONTABLE_QUIZ])
 
         if intent_message.slots.answer:
             answer = int(intent_message.slots.answer.first().value)
@@ -67,20 +108,17 @@ class MultiplicationGame:
                 self.__score = self.__score + 1
 
                 if len(self.__multipliers) > 0:
-                    sentence = "Bravo. Tu marques un point. On continue. {}".format(self.new_multiplication())
-                    hermes.publish_continue_session(intent_message.session_id, sentence, INTENT_FILTER_GET_ANSWER)
+                    hermes.publish_end_session(intent_message.session_id, self.__message.get('rightAnswer'))
+                    hermes.publish_start_session_action('default', self.new_multiplication(), INTENT_FILTER_GET_ANSWER, True, '')
                 else:
-                    sentence = "Bravo, tu as finis cette table! Ton score est de {} point".format(self.__score)
-                    hermes.publish_end_session(intent_message.session_id, sentence)
+                    hermes.publish_end_session(intent_message.session_id, self.__message.get('tableFinished').format(self.__score))
 
             else:
                 if len(self.__multipliers) > 0:
-                    sentence = "Non, {} n'est pas la bonne réponse. On continue. {}".format(answer, self.new_multiplication())
-                    hermes.publish_continue_session(intent_message.session_id, sentence, INTENT_FILTER_GET_ANSWER)
+                    hermes.publish_end_session(intent_message.session_id, self.__message.get('wrongAnswer').format(answer))
+                    hermes.publish_start_session_action('default', self.new_multiplication(), INTENT_FILTER_GET_ANSWER, True, '')
                 else:
-                    sentence = "Cette table est terminée! Ton score est de {} point".format(self.__score)
-                    hermes.publish_end_session(intent_message.session_id, sentence)
-
+                    hermes.publish_end_session(intent_message.session_id, self.__message.get('tableFinished').format(self.__score))
 
     def user_does_not_know(self, hermes, intent_message):
         if self.__current_table == 0:
@@ -90,28 +128,18 @@ class MultiplicationGame:
         self.__multipliers.remove(self.__current_multiplier)
 
         if len(self.__multipliers) > 0:
-            sentence = "Ok, la réponse c'était {} . On passe à une autre. {}".format(result, self.new_multiplication())
-            hermes.publish_continue_session(intent_message.session_id, sentence, INTENT_FILTER_GET_ANSWER)
+            hermes.publish_end_session(intent_message.session_id, self.__message.get('giveUpButRemaining').format(result))
+            hermes.publish_start_session_action('default', self.new_multiplication(), INTENT_FILTER_GET_ANSWER, True, '')
 
         else:
-            sentence = "Ok, la réponse était {} . Cette table est terminée! Ton score est de {} point".format(result, self.__score)
+            sentence = self.__message.get('giveUpAndNoMore').format(result, self.__score)
             hermes.publish_end_session(intent_message.session_id, sentence)
 
     def user_quits(self, hermes, intent_message):
         if self.__current_table == 0:
             hermes.publish_end_session(intent_message.session_id, "")
 
-        hermes.publish_end_session(intent_message.session_id, "Ok, on arrête là. Ton score est de {} point. A bientôt".format(self.__score))
-
-    def session_started(self, hermes, session_started_message):
-        self.__score = 0
-        self.__multipliers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-
-    def session_stopped(self, hermes, session_ended_message):
-        hermes
-        self.__current_table = 0
-        self.__current_multiplier = 0
-        self.__score = 0
+        hermes.publish_end_session(intent_message.session_id, self.__message.get('stopGame').format(self.__score))
 
     def start(self):
         with Hermes(MQTT_ADDR) as h:
@@ -119,51 +147,9 @@ class MultiplicationGame:
                 .subscribe_intent(INTENT_STOP_QUIZ, self.user_quits) \
                 .subscribe_intent(INTENT_DOES_NOT_KNOW, self.user_does_not_know) \
                 .subscribe_intent(INTENT_GIVE_ANSWER, self.user_gives_answer) \
-                .subscribe_session_started(self.session_started) \
-                .subscribe_session_ended(self.session_stopped) \
                 .start()
 
 
 if __name__ == "__main__":
     game = MultiplicationGame()
     game.start()
-
-
-"""
-NLU structure sample :
-
-hermes/nlu/query
-{
-	"input":"donne moi la table des cinq",
-	"intentFilter":null,
-	"id":"8321623a-c614-4c13-95fc-ce3e1d1d8d3a",
-	"sessionId":"d6becee7-dced-4a42-b7b4-02835543cbb5"
-}
-hermes/nlu/intentParsed 
-{
-	"id":"8321623a-c614-4c13-95fc-ce3e1d1d8d3a",
-	"input":"donne moi la table des cinq",
-	"intent":{
-		"intentName":"alrouen:startMultiplicationTableQuiz",
-		"probability":1.0
-	},
-	"slots":[ 
-		{
-			"rawValue":"cinq",
-			"value":{
-				"kind":"Number",
-				"value":5.0
-			},
-			"range": { 
-				"start":23,
-				"end":27
-			},
-			"entity":"snips/number",
-			"slotName":"table"
-		}
-	],
-	"sessionId":"d6becee7-dced-4a42-b7b4-02835543cbb5"
-}
-
-
-"""
